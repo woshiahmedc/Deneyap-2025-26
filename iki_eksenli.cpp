@@ -1,40 +1,28 @@
 #include <Deneyap_Servo.h>
 
 // -------------------- PIN KONFIGURASYONU --------------------
-// Joystick modülü üzerindeki buton bağlantısı.
-// Test amaçlı kullanılacağı için harici direnç gerektirmeyen dahili pull-up kullanılacak.
 #define PIN_JOYSTICK_BTN D14
-
-// Joystick analog girişleri
 #define PIN_JOY_X A0
 #define PIN_JOY_Y A1
-
-// Servo motor çıkışları
 #define PIN_SERVO_1 D0
 #define PIN_SERVO_2 D1
 
 // -------------------- SISTEM SABITLERI ----------------------
-// Servo motorların güvenli çalışma aralığı (mikrosaniye cinsinden).
-// Mekanik sıkışmayı önlemek için bu değerler robotun fiziksel sınırlarına göre ayarlanmalıdır.
-const int SERVO_MIN_US = 0;
-const int SERVO_MAX_US = 3000;
+// GÜVENLİK REVİZYONU 1: Sınır değerleri güvenli aralığa çekildi.
+// 0 ve 3000 değerleri servoları yakabilir. Standart güvenli aralık 1000-2000'dir.
+const int SERVO_MIN_US = 1000; 
+const int SERVO_MAX_US = 2000; 
 
-// Analog okuma eşik değerleri (Deneyap 12-bit ADC: 0-4095).
-// Orta nokta gürültüsünü (noise) filtrelemek için geniş bir ölü bölge (deadzone) bırakılmıştır.
+// Analog okuma eşik değerleri
 const int JOY_ALT_ESIK = 1000;
 const int JOY_UST_ESIK = 3000;
 
 // -------------------- DURUM DEGISKENLERI --------------------
 int anlikOkumaY, anlikOkumaX;
-
-// Başlangıç pozisyonu orta nokta (1500us) olarak belirlenir.
-// Bu, sistem açıldığında robotun ani ve tehlikeli bir hareket yapmasını engeller.
 int hedefKonum1 = 1500;
 int hedefKonum2 = 1500;
 
-// Hareket hızı ayarları.
-// 'adimMiktari': Her döngüde servonun ne kadar döneceği (ivmelenme kontrolü).
-// 'donguGecikmesi': Döngü hızı (sistemin tepki süresi).
+// Hız ayarları
 int adimMiktari = 5;
 int donguGecikmesi = 10;
 
@@ -46,17 +34,18 @@ Servo motor2;
 // SISTEM KURULUMU (SETUP)
 // ============================================================
 void setup() {
-  // Servo motorları ilgili pinlere bağla
   motor1.attach(PIN_SERVO_1);
   motor2.attach(PIN_SERVO_2);
+  
+  // Başlangıçta motorları güvenli orta noktaya al
+  motor1.writeMicroseconds(hedefKonum1);
+  motor2.writeMicroseconds(hedefKonum2);
 
-  // Buton için dahili pull-up direncini aktif et.
-  // Bu sayede buton basılmadığında HIGH, basıldığında LOW okunur.
   pinMode(PIN_JOYSTICK_BTN, INPUT_PULLUP);
 
-  // Hata ayıklama ve test mesajları için seri portu başlat.
   Serial.begin(115200);
-  Serial.println("Sistem Baslatildi: Manuel Kontrol Modu");
+  Serial.println("Sistem Baslatildi: Veri Okuma Modu Aktif");
+  Serial.println("Joy_X \t Joy_Y \t Servo_1 \t Servo_2");
 }
 
 // ============================================================
@@ -67,19 +56,29 @@ void loop() {
   hareketVerileriniIsle();
 
   // 2. Buton Test Kontrolü
-  // Kullanıcı bağlantıyı test etmek isterse butona basarak geri bildirim alabilir.
   if (digitalRead(PIN_JOYSTICK_BTN) == LOW) {
-    Serial.println("Joystick algilandi");
-    // Seri port ekranını mesajla doldurmamak (flood) için kısa bir bekleme eklenir.
-    delay(200);
+    Serial.print("--- BUTONA BASILDI --- ");
+    delay(50); // Debounce süresi 10ms'den 50ms'ye çıkarıldı (Parazit önleme)
   }
 
   // 3. Motorları Sür
-  // writeMicroseconds kullanımı, standart açı (0-180) komutuna göre daha hassas kontrol sağlar.
+  // GÜVENLİK REVİZYONU 2: 'constrain' ile donanımsal sınırları garanti altına alıyoruz.
+  // Hesaplama hatası olsa bile motora sınır dışı değer gitmez.
+  hedefKonum1 = constrain(hedefKonum1, SERVO_MIN_US, SERVO_MAX_US);
+  hedefKonum2 = constrain(hedefKonum2, SERVO_MIN_US, SERVO_MAX_US);
+
   motor1.writeMicroseconds(hedefKonum1);
   motor2.writeMicroseconds(hedefKonum2);
 
-  // Sistemi stabil tutmak ve servo jitter'ını (titreme) önlemek için kısa bekleme.
+  // ------------------------------------------------------------
+  // SERİ EKRANA YAZDIRMA
+  // ------------------------------------------------------------
+  Serial.print("JoyX:"); Serial.print(anlikOkumaX);
+  Serial.print("\t JoyY:"); Serial.print(anlikOkumaY);
+  Serial.print("\t Srv1:"); Serial.print(hedefKonum1);
+  Serial.print("\t Srv2:"); Serial.println(hedefKonum2);
+  // ------------------------------------------------------------
+
   delay(donguGecikmesi);
 }
 
@@ -87,26 +86,22 @@ void loop() {
 // YARDIMCI FONKSIYON: HAREKET MANTIGI
 // ============================================================
 void hareketVerileriniIsle() {
-  // ADC'den ham verileri oku
   anlikOkumaY = analogRead(PIN_JOY_Y);
   anlikOkumaX = analogRead(PIN_JOY_X);
 
   // --- EKSEN 1 KONTROLÜ (Y) ---
-  // Joystick aşağı çekildiyse ve minimum sınıra ulaşılmadıysa konumu azalt.
-  if (anlikOkumaY < JOY_ALT_ESIK && hedefKonum1 > SERVO_MIN_US) {
+  if (anlikOkumaY < JOY_ALT_ESIK) { // && kontrolüne gerek kalmadı, constrain kullanıyoruz
     hedefKonum1 -= adimMiktari;
   }
-  // Joystick yukarı itildiyse ve maksimum sınıra ulaşılmadıysa konumu artır.
-  else if (anlikOkumaY > JOY_UST_ESIK && hedefKonum1 < SERVO_MAX_US) {
+  else if (anlikOkumaY > JOY_UST_ESIK) {
     hedefKonum1 += adimMiktari;
   }
 
   // --- EKSEN 2 KONTROLÜ (X) ---
-  // Aynı mantık ikinci eksen için uygulanır.
-  if (anlikOkumaX < JOY_ALT_ESIK && hedefKonum2 > SERVO_MIN_US) {
+  if (anlikOkumaX < JOY_ALT_ESIK) {
     hedefKonum2 -= adimMiktari;
   }
-  else if (anlikOkumaX > JOY_UST_ESIK && hedefKonum2 < SERVO_MAX_US) {
+  else if (anlikOkumaX > JOY_UST_ESIK) {
     hedefKonum2 += adimMiktari;
   }
 }
