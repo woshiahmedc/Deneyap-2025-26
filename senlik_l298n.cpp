@@ -1,139 +1,222 @@
-#include <Deneyap_Servo.h>
-
 // -------------------- PIN KONFIGURASYONU --------------------
-// Joystick
-#define PIN_JOYSTICK_BTN D2
-#define PIN_JOY_Y A0
-#define PIN_JOY_X A1
 
-// Servo Motorlar
-#define PIN_SERVO_1 D0
-#define PIN_SERVO_2 D1
+// Joystick
+
+#define PIN_JOYSTICK_BTN D12
+
+#define PIN_JOY_Y A1   // Y ekseni → sağ-sol dönüş
+
+#define PIN_JOY_X A0   // X ekseni → ileri-geri hareket
 
 // L298N Motor Sürücü Pinleri
-#define L298N_ENA D3  // Motor A Hız (PWM)
-#define L298N_IN1 D4  // Motor A Yön 1
-#define L298N_IN2 D5  // Motor A Yön 2
-#define L298N_IN3 D6  // Motor B Yön 1
-#define L298N_IN4 D7  // Motor B Yön 2
-#define L298N_ENB D8  // Motor B Hız (PWM)
 
-// -------------------- SISTEM SABITLERI ----------------------
-const int SERVO_MIN_US = 0;
-const int SERVO_MAX_US = 3000;
-const int JOY_ALT_ESIK = 1000;
-const int JOY_UST_ESIK = 3000;
+#define L298N_ENA D1  // Motor A Hız (PWM)
+
+#define L298N_IN1 D4  // Motor A Yön 1
+
+#define L298N_IN2 D15 // Motor A Yön 2
+
+#define L298N_IN3 D8  // Motor B Yön 1
+
+#define L298N_IN4 D9  // Motor B Yön 2
+
+#define L298N_ENB D13 // Motor B Hız (PWM)
+
+// -------------------- SABITLER --------------------
+
+#define JOY_ALT_ESIK 1700
+
+#define JOY_UST_ESIK 2300
 
 // -------------------- DURUM DEGISKENLERI --------------------
-int anlikOkumaY, anlikOkumaX;
-int hedefKonum1 = 1500;
-int hedefKonum2 = 1500;
-int adimMiktari = 5;
-int donguGecikmesi = 10;
 
-Servo motor1;
-Servo motor2;
+int joyX, joyY;
+
+int pwmA, pwmB;
 
 // ============================================================
-// SISTEM KURULUMU (SETUP)
+
+// SISTEM KURULUMU
+
 // ============================================================
+
 void setup() {
-  // Servoları Başlat
-  motor1.attach(PIN_SERVO_1);
-  motor2.attach(PIN_SERVO_2);
 
-  // Joystick Buton
   pinMode(PIN_JOYSTICK_BTN, INPUT_PULLUP);
 
-  // L298N Pin Modları
   pinMode(L298N_ENA, OUTPUT);
+
   pinMode(L298N_IN1, OUTPUT);
+
   pinMode(L298N_IN2, OUTPUT);
+
   pinMode(L298N_IN3, OUTPUT);
+
   pinMode(L298N_IN4, OUTPUT);
+
   pinMode(L298N_ENB, OUTPUT);
 
   Serial.begin(115200);
-  Serial.println("Sistem Baslatildi: Servo + L298N Kontrol Modu");
+
+  Serial.println("Sistem Baslatildi: XY Joystick Tank Kontrol");
+
 }
 
 // ============================================================
-// ANA DONGU (LOOP)
+
+// ANA DONGU
+
 // ============================================================
+
 void loop() {
-  // 1. Verileri Oku
-  anlikOkumaY = analogRead(PIN_JOY_Y);
-  anlikOkumaX = analogRead(PIN_JOY_X);
 
-  // 2. Servo Mantığını İşle
-  servoKontrol();
+  // Joystick değerlerini oku
 
-  // 3. L298N Motor Sürücü Mantığını İşle
+  joyX = analogRead(PIN_JOY_X);
+
+  joyY = analogRead(PIN_JOY_Y);
+
+  // Motorları kontrol et
+
   motorSurucuKontrol();
 
-  // 4. Çıkışları Uygula
-  motor1.writeMicroseconds(hedefKonum1);
-  motor2.writeMicroseconds(hedefKonum2);
+  // Joystick buton kontrolü
 
-  // Buton Kontrolü
   if (digitalRead(PIN_JOYSTICK_BTN) == LOW) {
+
     Serial.println("Joystick Butonu Aktif");
+
     delay(200);
+
   }
 
-  delay(donguGecikmesi);
+  // Serial Debug: joystick + motor PWM
+
+  Serial.print("JOY X: "); Serial.print(joyX);
+
+  Serial.print(" | JOY Y: "); Serial.print(joyY);
+
+  Serial.print(" | PWM A: "); Serial.print(pwmA);
+
+  Serial.print(" | PWM B: "); Serial.println(pwmB);
+
+  delay(20);
+
 }
 
 // ============================================================
-// YARDIMCI FONKSIYONLAR
+
+// MOTOR SURUCU FONKSIYONU
+
 // ============================================================
-
-void servoKontrol() {
-  // Eksen 1 (Y) Servo Kontrolü
-  if (anlikOkumaY < JOY_ALT_ESIK && hedefKonum1 > SERVO_MIN_US) {
-    hedefKonum1 -= adimMiktari;
-  } else if (anlikOkumaY > JOY_UST_ESIK && hedefKonum1 < SERVO_MAX_US) {
-    hedefKonum1 += adimMiktari;
-  }
-
-  // Eksen 2 (X) Servo Kontrolü
-  if (anlikOkumaX < JOY_ALT_ESIK && hedefKonum2 > SERVO_MIN_US) {
-    hedefKonum2 -= adimMiktari;
-  } else if (anlikOkumaX > JOY_UST_ESIK && hedefKonum2 < SERVO_MAX_US) {
-    hedefKonum2 += adimMiktari;
-  }
-}
 
 void motorSurucuKontrol() {
-  int pwmHizi = 0;
 
-  // Y ekseni üzerinden DC motor ileri/geri kontrolü
-  if (anlikOkumaY > JOY_UST_ESIK) { 
-    // İleri Hareket
-    pwmHizi = map(anlikOkumaY, JOY_UST_ESIK, 4095, 0, 255);
+  pwmA = 0;
+
+  pwmB = 0;
+
+  // ---------------------------
+
+  // X ekseni → ileri / geri
+
+  // ---------------------------
+
+  if (joyX > JOY_UST_ESIK) {
+
+    pwmA = map(joyX, JOY_UST_ESIK, 4095, 0, 255);
+
+    pwmB = pwmA;
+
     digitalWrite(L298N_IN1, HIGH);
+
     digitalWrite(L298N_IN2, LOW);
+
     digitalWrite(L298N_IN3, HIGH);
+
     digitalWrite(L298N_IN4, LOW);
+
   } 
-  else if (anlikOkumaY < JOY_ALT_ESIK) { 
-    // Geri Hareket
-    pwmHizi = map(anlikOkumaY, JOY_ALT_ESIK, 0, 0, 255);
+
+  else if (joyX < JOY_ALT_ESIK) {
+
+    pwmA = map(joyX, JOY_ALT_ESIK, 0, 0, 255);
+
+    pwmB = pwmA;
+
     digitalWrite(L298N_IN1, LOW);
+
     digitalWrite(L298N_IN2, HIGH);
+
     digitalWrite(L298N_IN3, LOW);
+
     digitalWrite(L298N_IN4, HIGH);
+
   } 
-  else { 
-    // Durdur (Deadzone içindeyse)
-    pwmHizi = 0;
+
+  else {
+
+    pwmA = 0;
+
+    pwmB = 0;
+
     digitalWrite(L298N_IN1, LOW);
+
     digitalWrite(L298N_IN2, LOW);
+
     digitalWrite(L298N_IN3, LOW);
+
     digitalWrite(L298N_IN4, LOW);
+
   }
 
-  // Hız değerlerini uygula
-  analogWrite(L298N_ENA, pwmHizi);
-  analogWrite(L298N_ENB, pwmHizi);
+  // ---------------------------
+
+  // Y ekseni → sola / sağa dönüş
+
+  // ---------------------------
+
+  if (joyY > JOY_UST_ESIK) {
+
+    // Sağ dönüş → sol teker döner, sağ teker durur
+
+    pwmA = map(joyY, JOY_UST_ESIK, 4095, 0, 255);
+
+    pwmB = 0;
+
+    digitalWrite(L298N_IN1, HIGH);
+
+    digitalWrite(L298N_IN2, LOW);
+
+    digitalWrite(L298N_IN3, LOW);
+
+    digitalWrite(L298N_IN4, LOW);
+
+  } 
+
+  else if (joyY < JOY_ALT_ESIK) {
+
+    // Sol dönüş → sağ teker döner, sol teker durur
+
+    pwmA = 0;
+
+    pwmB = map(joyY, JOY_ALT_ESIK, 0, 0, 255);
+
+    digitalWrite(L298N_IN1, LOW);
+
+    digitalWrite(L298N_IN2, LOW);
+
+    digitalWrite(L298N_IN3, HIGH);
+
+    digitalWrite(L298N_IN4, LOW);
+
+  }
+
+  // PWM değerlerini uygula
+
+  analogWrite(L298N_ENA, pwmA);
+
+  analogWrite(L298N_ENB, pwmB);
+
 }
+
