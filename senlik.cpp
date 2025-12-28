@@ -5,8 +5,8 @@
 BluetoothSerial SerialBT;
 
 // Servo Nesneleri
-Servo servoOmuz;  // Servo 2 ve 3 (Paralel)
-Servo servoPence; // Servo 4
+Servo servoOmuz;  // Servo 2 ve 3 (Paralel) İkisini de D13
+Servo servoPence; // Servo 4 --> D14
 
 // Pin Tanımlamaları
 const int joyX = A0;
